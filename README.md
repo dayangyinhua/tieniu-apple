@@ -239,3 +239,56 @@ macOS 要 RGBA）、workflow 结构、`.gitignore` 挡住证书、**真跑一遍
 - 也可以在 Run workflow 时用 `version` 输入临时覆盖（不必改文件、不必重新提交）。
 - 出包后 `version-ios.json` / `version-macos.json` 的 `latest_version` 自动跟上，
   网页层的 `hasNew` 逻辑会给它渲染一个红 **NEW** 胶囊。
+
+---
+
+## 11. 三个「跑一次废一个 run」的坑（都已固化进 workflow，**别删**）
+
+首次云端出包连着踩了三次，症状全都长得很像「代码写错了」，其实都是**环境/平台版本**问题。
+三层防护现在都在 `apple.yml` 里，改 workflow 时**千万别顺手删掉**：
+
+### 11.1 `objectVersion 77` —— Xcode 工程格式太新
+
+- **症状**：job 20 秒就红，报错只在 `xcodebuild` 那一步：
+  `Unable to read project … it is in a future Xcode project file format (77)`。
+- **根因**：新版 **XcodeGen（2.46）默认生成 Xcode 16 的工程格式**（`objectVersion = 77`），
+  而 runner 上的老 Xcode 读不了。
+- **防护**：① 三个 macOS 作业统一 `runs-on: macos-15`（自带 Xcode 16+）；
+  ② 「生成 Xcode 工程（并确保当前 Xcode 读得懂）」步骤里**先试读一次**
+  （`xcodebuild -list`），读不了就 `sed` 把 `objectVersion` 降到 **56**，并删掉
+  `preferredProjectObjectVersion` / `minimizedProjectReferenceProxies` 再试读。
+  XcodeGen 产出的是传统 PBXGroup 结构、没有 77 专属对象 ⇒ 降级是安全的。
+
+### 11.2 `WKOpenPanelParameters` —— iOS 部署目标太低
+
+- **症状**：编译报
+  `error: 'WKOpenPanelParameters' is only available in iOS 18.4 or newer`
+  （注意是 **error 不是 warning**，直接编译失败）。
+- **根因**：自定义 `<input type="file">` 上传面板的代理方法
+  `webView(_:runOpenPanelWith:initiatedByFrame:completionHandler:)`
+  与它带的 `WKOpenPanelParameters` **都是 iOS 18.4 才公开的新 API**，
+  而本工程 `deploymentTarget.iOS = 14.0`。
+- **修法**：给那个方法标 **`@available(iOS 18.4, *)`**（不要为了它抬高部署目标！）。
+  老系统上**功能不缺失** —— Apple 官方文档原话：
+  *"By default on iOS, file uploads are enabled if you don't implement this method."*
+  即 iOS < 18.4 时 WebKit 会自己弹内置的 `WKFileUploadPanel`（照片图库 / 拍照 / 浏览文件），
+  只是文案跟随系统语言。⇒ **18.4+ 用我们这份中文面板，更低版本自动回落系统面板。**
+- 同类风险 API：`WKWebView.isInspectable`(16.4+)、`callAsyncJavaScript`(14.3+)、
+  `WKDownload`(14.5+)、`underPageBackgroundColor`(15+)、`UIFindInteraction`(16+)……
+  **该文件目前一个都没用**，将来要用记得照 11.2 的办法处理。
+
+### 11.3 `hdiutil: attach failed - Resource temporarily unavailable` —— CI 偶发
+
+- **症状**：dmg **已经成功生成**（`created: …dmg` 都打出来了），
+  紧接着「挂载 dmg 验一遍」那句偶发失败，把整个 job 判红。
+- **根因**：macOS runner 上 `diskimages-help` 助手进程与其他任务抢资源，
+  与被测 dmg 好坏**毫无关系**（同一份 dmg 上一轮挂得上、这一轮挂不上）。
+- **防护**：挂载验证改成 **重试 3 次**（每次间隔 3 秒、加 `-noverify`）；
+  三次都不行只发 `::warning::`，**不判红**。
+  真正的坏包检测交给后面「`version-macos.json` ↔ 实际下载文件」的 **md5/size 交叉复核**。
+
+### 附：CI 产物**不是**逐字节可复现的
+
+同一个 commit 跑两次，ipa/dmg 的 **md5 不同**（zip/dmg 里存了文件 mtime）。
+所以「校验」永远要拿**同一次 run** 生成的 `version-*.json` 去对**同一次 run 下载的包**，
+不能拿上一轮的 json 去对下一轮的包。
