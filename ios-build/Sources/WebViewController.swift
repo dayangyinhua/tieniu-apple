@@ -915,7 +915,19 @@ extension WebViewController: WKNavigationDelegate, WKUIDelegate {
         return nil
     }
 
-    /// `<input type="file">` —— WKWebView 必须实现这个，否则点附件/头像/上传图片**毫无反应**。
+    /// `<input type="file">` —— 自定义上传面板（中文的「照片图库 / 拍照 / 浏览文件」）。
+    ///
+    /// 🔴 **必须加 `@available(iOS 18.4, *)`**：`WKOpenPanelParameters` 与这个代理方法是
+    ///    **iOS 18.4 才公开**的 API，而本工程部署目标是 iOS 14.0。不标注的话，
+    ///    Xcode 26 的 iOS SDK 会直接判编译错误（不是警告）：
+    ///      error: 'WKOpenPanelParameters' is only available in iOS 18.4 or newer
+    ///
+    /// 🔴 **不实现也不会坏**（Apple 官方文档原话）：
+    ///      "By default on iOS, file uploads are enabled if you don't implement this method."
+    ///    即 iOS < 18.4 上 WebKit 会自己弹内置的 `WKFileUploadPanel`
+    ///    （照片图库 / 拍照 / 浏览文件，只是文案跟随系统语言）。
+    ///    ⇒ 18.4+ 用我们这份中文面板，更低版本自动回落系统面板，**功能全程不缺失**。
+    @available(iOS 18.4, *)
     func webView(_ webView: WKWebView,
                  runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,
