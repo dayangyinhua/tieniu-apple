@@ -1,0 +1,13 @@
+# 🔴 强制 LF：macOS 上的 runner 与 shell 对 CRLF 零容忍，
+#    而 Windows 上 `core.autocrlf` 默认可能是 true ⇒ 不锁死会在云端出现
+#    「本地明明好的、CI 上莫名报错」这类只在异地方复现的问题（同主项目铁律 53）。
+* text=auto eol=lf
+
+# 二进制：别让 git 去猜、更别做行尾转换
+*.png binary
+*.icns binary
+*.ipa binary
+*.dmg binary
+*.zip binary
+*.p12 binary
+*.mobileprovision binary
