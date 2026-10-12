@@ -81,7 +81,7 @@ jobs:
   # ══════════════════════════════════════════════════════════════════════
   ios:
     needs: preflight
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -89,9 +89,42 @@ jobs:
       - name: 装 XcodeGen
         run: brew install xcodegen
 
-      - name: 生成 Xcode 工程（从 project.yml 现生成，不提交 .xcodeproj）
+      - name: 生成 Xcode 工程（并确保当前 Xcode 读得懂）
         working-directory: ios-build
-        run: xcodegen generate
+        run: |
+          set -euo pipefail
+          echo "--- runner 上装了哪些 Xcode ---"
+          ls -d /Applications/Xcode*.app || true
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "${XC:-}" ] || XC=/Applications/Xcode.app
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+          xcodegen generate
+
+          # 🔴 这一步是「跑一次就废一个 run」的守门员：
+          #    XcodeGen 新版写的是 **Xcode 16 的工程格式（objectVersion 77）**，
+          #    而 runner 上装的老 Xcode（macos-14 只有 15.4）会**当场拒绝读**：
+          #      xcodebuild: error: Unable to read project 'TieniuForum.xcodeproj'
+          #        Reason: … it is in a future Xcode project file format (77)
+          #    现象是 job 20 秒就红，而且报错只在 xcodebuild 那一步。
+          #    ⇒ 生成后**先试着读一次**；读不了就把格式标记降级到 56（Xcode 14/15 通用格式）。
+          #      XcodeGen 生成的是传统 PBXGroup 结构、没有 77 专属对象 ⇒ 降级是安全的。
+          PBX=TieniuForum.xcodeproj/project.pbxproj
+          OV() { grep -m1E '^[[:space:]]*objectVersion' "$PBX" | tr -dc 0-9; }
+          echo "objectVersion = $(OV)"
+          if xcodebuild -list -project TieniuForum.xcodeproj >/dev/null 2>&1; then
+            echo "✅ 当前 Xcode 能读这个工程"
+          else
+            echo "::warning::当前 Xcode 读不了 objectVersion=$(OV)，降级到 56 后重试"
+            sed -i '' -E \
+              -e 's/^([[:space:]]*)objectVersion = [0-9]*;/\1objectVersion = 56;/' \
+              -e '/^[[:space:]]*preferredProjectObjectVersion = [0-9]*;[[:space:]]*$/d' \
+              -e '/^[[:space:]]*minimizedProjectReferenceProxies = 1;[[:space:]]*$/d' "$PBX"
+            echo "降级后 objectVersion = $(OV)"
+            xcodebuild -list -project TieniuForum.xcodeproj >/dev/null
+            echo "✅ 降级后能读了"
+          fi
 
       - name: 解析版本号
         id: ver
@@ -184,7 +217,7 @@ jobs:
   # ══════════════════════════════════════════════════════════════════════
   macos:
     needs: preflight
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -192,11 +225,38 @@ jobs:
       - name: 装 XcodeGen
         run: brew install xcodegen
 
-      - name: 生成 Xcode 工程
+      - name: 生成 Xcode 工程（并确保当前 Xcode 读得懂）
         working-directory: macos-build
         # ⚠️ 必须 cd 进来再 generate：project.yml 里的 Sources/Resources 是相对
         #    **它自己所在目录**解析的，用 --spec 从别处调容易和 XcodeGen 的基准目录对不上。
-        run: xcodegen generate
+        run: |
+          set -euo pipefail
+          echo "--- runner 上装了哪些 Xcode ---"
+          ls -d /Applications/Xcode*.app || true
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "${XC:-}" ] || XC=/Applications/Xcode.app
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+          xcodegen generate
+
+          # 🔴 同上（ios 作业里有完整说明）：XcodeGen 写的是 Xcode 16 的
+          #    objectVersion 77，老 Xcode 会当场拒绝读 ⇒ 读不了就把格式标记降级到 56。
+          PBX=TieniuForumMac.xcodeproj/project.pbxproj
+          OV() { grep -m1E '^[[:space:]]*objectVersion' "$PBX" | tr -dc 0-9; }
+          echo "objectVersion = $(OV)"
+          if xcodebuild -list -project TieniuForumMac.xcodeproj >/dev/null 2>&1; then
+            echo "✅ 当前 Xcode 能读这个工程"
+          else
+            echo "::warning::当前 Xcode 读不了 objectVersion=$(OV)，降级到 56 后重试"
+            sed -i '' -E \
+              -e 's/^([[:space:]]*)objectVersion = [0-9]*;/\1objectVersion = 56;/' \
+              -e '/^[[:space:]]*preferredProjectObjectVersion = [0-9]*;[[:space:]]*$/d' \
+              -e '/^[[:space:]]*minimizedProjectReferenceProxies = 1;[[:space:]]*$/d' "$PBX"
+            echo "降级后 objectVersion = $(OV)"
+            xcodebuild -list -project TieniuForumMac.xcodeproj >/dev/null
+            echo "✅ 降级后能读了"
+          fi
 
       - name: 解析版本号
         id: ver
@@ -298,7 +358,7 @@ jobs:
   signed:
     needs: [preflight, ios]
     if: needs.preflight.outputs.signed == 'yes'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -306,9 +366,27 @@ jobs:
       - name: 装 XcodeGen
         run: brew install xcodegen
 
-      - name: 生成 Xcode 工程
+      - name: 生成 Xcode 工程（并确保当前 Xcode 读得懂）
         working-directory: ios-build
-        run: xcodegen generate
+        run: |
+          set -euo pipefail
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "${XC:-}" ] || XC=/Applications/Xcode.app
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          xcodegen generate
+          # 老 Xcode 读不了 Xcode 16 的工程格式（objectVersion 77）⇒ 降级到 56
+          PBX=TieniuForum.xcodeproj/project.pbxproj
+          OV() { grep -m1E '^[[:space:]]*objectVersion' "$PBX" | tr -dc 0-9; }
+          if ! xcodebuild -list -project TieniuForum.xcodeproj >/dev/null 2>&1; then
+            echo "::warning::当前 Xcode 读不了 objectVersion=$(OV)，降级到 56 后重试"
+            sed -i '' -E \
+              -e 's/^([[:space:]]*)objectVersion = [0-9]*;/\1objectVersion = 56;/' \
+              -e '/^[[:space:]]*preferredProjectObjectVersion = [0-9]*;[[:space:]]*$/d' \
+              -e '/^[[:space:]]*minimizedProjectReferenceProxies = 1;[[:space:]]*$/d' "$PBX"
+            xcodebuild -list -project TieniuForum.xcodeproj >/dev/null
+          fi
+          echo "objectVersion = $(OV)（已被当前 Xcode 读取 ✅）"
 
       - name: 解析版本号
         id: ver
