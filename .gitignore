@@ -1,0 +1,29 @@
+# —— Apple 双端（iOS + macOS）工程：生成物一律不入库，仓库里只留「声明」
+# .xcodeproj 由 XcodeGen 从 project.yml 现生成（在 Windows 上没法验证 pbxproj，
+# 所以干脆不提交它，避免出现「工程文件和描述对不上」的幽灵问题）
+*.xcodeproj/
+# ⚠️ 带斜杠的模式是「锚定到本文件所在目录」的 ⇒ 要写成 **/ 才能匹配 ios-build/ 与 macos-build/ 两级
+**/Generated/Info.plist
+
+# 构建产物
+build/
+DerivedData/
+*.xcarchive/
+*.ipa
+*.dmg
+*.zip
+Payload/
+version-ios.json
+version-macos.json
+
+# 证书 / 描述文件（🔴 绝对不能入库）
+*.p12
+*.mobileprovision
+*.cer
+*.p8
+
+# macOS / Xcode 杂项
+.DS_Store
+xcuserdata/
+*.xcworkspace/
+*.xcuserstate

@@ -1,0 +1,93 @@
+# 铁牛NAS共享社区 · iOS 客户端 —— XcodeGen 工程描述
+#
+# 🔴 为什么用 XcodeGen 而不是提交一个手写的 .xcodeproj：
+#    project.pbxproj 是一份又长又脆的 OpenStep 格式文件，**在 Windows 上根本没法验证**。
+#    用这份声明式 YAML，`xcodegen generate` 会在 macOS 上现生成工程 —— 只要 YAML 对，工程就一定对。
+#
+# 用法（在 macOS 上，或 GitHub Actions 里）：
+#     brew install xcodegen
+#     cd ios-build && xcodegen generate
+#     open TieniuForum.xcodeproj
+
+name: TieniuForum
+
+options:
+  bundleIdPrefix: com.tiemu
+  deploymentTarget:
+    iOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    ENABLE_BITCODE: "NO"
+    ALWAYS_SEARCH_USER_PATHS: "NO"
+    CLANG_ENABLE_MODULES: "YES"
+
+targets:
+  TieniuForum:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tiemu.forum
+        PRODUCT_NAME: TieniuForum
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # 🔴 默认**不签名** ⇒ 任何人（含没有 Apple 开发者账号的）都能直接编译出 ipa。
+        #    需要正式签名时，在命令行覆盖即可（见 .github/workflows/ios.yml）：
+        #      CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=XXXXXXXXXX
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: 铁牛社区
+        CFBundleName: TieniuForum
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: zh_CN
+        UILaunchScreen: {}
+        UIViewControllerBasedStatusBarAppearance: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 🔴 论坛是明文 http://<IP>:8989 ⇒ 必须开 ATS 例外，否则 WKWebView 直接被系统拦掉。
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        # 只保留**真正会用到**的权限说明：
+        #   · 拍照 —— 「选择文件」里的「拍照」走 UIImagePickerController，必须这个 key
+        #   · 相册读/写 —— **故意不加**：PHPicker 是系统进程代选、不需要相册权限；
+        #     保存图片走系统分享面板（存储到照片），同样不需要 App 侧权限。
+        NSCameraUsageDescription: 用于拍照后直接作为附件/头像上传到社区。
+        NSPhotoLibraryAddUsageDescription: 用于把帖子、聊天里的图片存到你的相册。
+        NSLocalNetworkUsageDescription: 用于访问局域网里的铁牛 NAS 论坛服务。
+        ITSAppUsesNonExemptEncryption: false
+
+# 🔴 必须显式声明 scheme：workflow 里用的是
+#     `xcodebuild -scheme TieniuForum …`
+#   而 XcodeGen 生成的工程里 scheme 是「自动生成」的（Xcode 打开时才补），
+#   在纯命令行的 CI 里不能指望它 —— 显式写出来才是确定的。
+schemes:
+  TieniuForum:
+    build:
+      targets:
+        TieniuForum: all
+    run:
+      config: Debug
+    archive:
+      config: Release

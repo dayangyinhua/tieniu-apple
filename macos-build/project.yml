@@ -1,0 +1,88 @@
+# 铁牛社区 · macOS 桌面版客户端 —— XcodeGen 工程描述
+#
+# 与 ios-build/project.yml 同一套思路：**声明式 YAML 当唯一真源**，不提交 .xcodeproj
+# （project.pbxproj 是又长又脆的 OpenStep 文件，在 Windows 上根本没法验证）。
+#
+# 🔴 与 iOS 的关键差异（不是抄错）：
+#   ① 平台是 macOS，形态是「一个普通窗口 + 一个 WKWebView」，走 AppKit，不用 UIKit；
+#   ② 签名必须 **ad-hoc（CODE_SIGN_IDENTITY = "-"）**：Apple Silicon 上**未签名的二进制会被系统直接杀掉**，
+#      iOS 那边「完全不签名也能出 ipa（装的时候再签）」的路子在 macOS 上走不通；
+#   ③ 出包不打 ipa，而是 **.app → zip / dmg**；
+#   ④ 图标允许带 alpha（macOS 图标是圆角方形 + 透明边），所以图标另生成一套 RGBA 的。
+#
+# 用法（macOS 上）：
+#     brew install xcodegen && cd apple-build/macos-build && xcodegen generate
+#     open TieniuForumMac.xcodeproj
+
+name: TieniuForumMac
+
+options:
+  bundleIdPrefix: com.tiemu
+  deploymentTarget:
+    macOS: "11.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    ALWAYS_SEARCH_USER_PATHS: "NO"
+    CLANG_ENABLE_MODULES: "YES"
+    # 通用二进制：Intel + Apple Silicon 都能跑
+    ARCHS: "$(ARCHS_STANDARD)"
+    ONLY_ACTIVE_ARCH: "NO"
+    # 沙盒关掉 —— 不走 App Store 分发，没必要为它扛权限/entitlements 的复杂度
+    ENABLE_APP_SANDBOX: "NO"
+    ENABLE_HARDENED_RUNTIME: "NO"
+
+targets:
+  TieniuForumMac:
+    type: application
+    platform: macOS
+    sources:
+      # ⚠️ 这两个路径是相对**本文件所在目录**（macos-build/）解析的
+      # ⇒ CI 里先 `cd apple-build/macos-build` 再 `xcodegen generate`，
+      #    别用 `--spec` 从别处调，免得 XcodeGen 对基准目录的判断和这里对不上。
+      - path: Sources
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tiemu.forum.mac
+        PRODUCT_NAME: TieniuForum
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # 🔴 ad-hoc 签名（"Sign to Run Locally"）：Apple Silicon 上没签名 = 打不开
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: 铁牛社区
+        CFBundleName: TieniuForum
+        CFBundlePackageType: APPL
+        NSPrincipalClass: NSApplication
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: zh_CN
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.social-networking
+        NSHumanReadableCopyright: 铁牛NAS共享社区
+        # 🔴 论坛是明文 http://<IP>:8989 ⇒ macOS 同样强制 ATS，不开这个 WKWebView 直接被拦
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        # 允许窗口被关闭后不退出？不 —— 我们要「关掉窗口就退出」，见 AppDelegate
+        NSSupportsSuddenTermination: true
+
+# 显式声明 scheme：CI 里 `xcodebuild -scheme TieniuForumMac` 用得上
+schemes:
+  TieniuForumMac:
+    build:
+      targets:
+        TieniuForumMac: all
+    run:
+      config: Debug
+    archive:
+      config: Release
